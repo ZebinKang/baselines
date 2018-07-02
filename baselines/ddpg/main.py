@@ -16,7 +16,7 @@ import gym
 import tensorflow as tf
 from mpi4py import MPI
 
-def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
+def run(env_id, seed, noise_type, layer_norm, evaluation, share_layer=False, **kwargs):
     # Configure things.
     rank = MPI.COMM_WORLD.Get_rank()
     if rank != 0:
@@ -55,8 +55,8 @@ def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
 
     # Configure components.
     memory = Memory(limit=int(1e6), action_shape=env.action_space.shape, observation_shape=env.observation_space.shape)
-    critic = Critic(layer_norm=layer_norm)
-    actor = Actor(nb_actions, layer_norm=layer_norm)
+    critic = Critic(layer_norm=layer_norm,  share_first_layer=share_layer)
+    actor = Actor(nb_actions, layer_norm=layer_norm, share_first_layer=share_layer)
 
     # Seed everything to make things reproducible.
     seed = seed + 1000000 * rank
@@ -70,13 +70,15 @@ def run(env_id, seed, noise_type, layer_norm, evaluation, **kwargs):
     # Disable logging for rank != 0 to avoid noise.
     if rank == 0:
         start_time = time.time()
-    training.train(env=env, eval_env=eval_env, param_noise=param_noise,
+    average_reward_per_episode=training.train(env=env, eval_env=eval_env, param_noise=param_noise,
         action_noise=action_noise, actor=actor, critic=critic, memory=memory, **kwargs)
     env.close()
     if eval_env is not None:
         eval_env.close()
     if rank == 0:
         logger.info('total runtime: {}s'.format(time.time() - start_time))
+
+    return average_reward_per_episode
 
 
 def parse_args():
@@ -97,7 +99,7 @@ def parse_args():
     parser.add_argument('--gamma', type=float, default=0.99)
     parser.add_argument('--reward-scale', type=float, default=1.)
     parser.add_argument('--clip-norm', type=float, default=None)
-    parser.add_argument('--nb-epochs', type=int, default=500)  # with default settings, perform 1M steps total
+    parser.add_argument('--nb-epochs', type=int, default=20)  # with default settings, perform 1M steps total
     parser.add_argument('--nb-epoch-cycles', type=int, default=20)
     parser.add_argument('--nb-train-steps', type=int, default=50)  # per epoch cycle and MPI worker
     parser.add_argument('--nb-eval-steps', type=int, default=100)  # per epoch cycle and MPI worker
@@ -120,4 +122,18 @@ if __name__ == '__main__':
     if MPI.COMM_WORLD.Get_rank() == 0:
         logger.configure()
     # Run actual script.
-    run(**args)
+    modified_average_reward_per_episode=run(share_layer=True, **args)
+    original_average_reward_per_episode=run(**args)
+
+
+    import matplotlib.pylab as plt
+
+    plt.figure()
+    plt.plot(range(len(original_average_reward_per_episode)), original_average_reward_per_episode, label="original")
+    plt.plot(range(len(modified_average_reward_per_episode)), modified_average_reward_per_episode, label="modified")
+
+    plt.legend()
+    plt.xlabel('episode')
+    plt.ylabel('average reward of each episode')
+    # axes = plt.gca()
+    plt.show(block=True)

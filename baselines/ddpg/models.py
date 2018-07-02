@@ -3,16 +3,23 @@ import tensorflow.contrib as tc
 
 
 class Model(object):
-    def __init__(self, name):
+    def __init__(self, name, share_first_layer):
         self.name = name
+        self.share_first_layer = share_first_layer
 
     @property
     def vars(self):
-        return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
+        if self.name=='actor' or self.name=='critic':
+            return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='share')+tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
+        else:
+            return tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=self.name)
 
     @property
     def trainable_vars(self):
-        return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self.name)
+        if self.name == 'actor' or self.name == 'critic':
+            return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='share')+tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self.name)
+        else:
+            return tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=self.name)
 
     @property
     def perturbable_vars(self):
@@ -20,18 +27,23 @@ class Model(object):
 
 
 class Actor(Model):
-    def __init__(self, nb_actions, name='actor', layer_norm=True):
-        super(Actor, self).__init__(name=name)
+    def __init__(self, nb_actions, name='actor', layer_norm=True, share_first_layer=False):
+        super(Actor, self).__init__(name=name, share_first_layer=share_first_layer)
         self.nb_actions = nb_actions
         self.layer_norm = layer_norm
 
     def __call__(self, obs, reuse=False):
+        if self.name=='actor' and self.share_first_layer:
+            with tf.variable_scope("share", reuse=tf.AUTO_REUSE):
+                x = obs
+                x = tf.layers.dense(x, 64)
         with tf.variable_scope(self.name) as scope:
             if reuse:
                 scope.reuse_variables()
+            if not (self.name=='actor' and self.share_first_layer):
+                x = obs
+                x = tf.layers.dense(x, 64)
 
-            x = obs
-            x = tf.layers.dense(x, 64)
             if self.layer_norm:
                 x = tc.layers.layer_norm(x, center=True, scale=True)
             x = tf.nn.relu(x)
@@ -47,17 +59,21 @@ class Actor(Model):
 
 
 class Critic(Model):
-    def __init__(self, name='critic', layer_norm=True):
-        super(Critic, self).__init__(name=name)
+    def __init__(self, name='critic', layer_norm=True, share_first_layer=False):
+        super(Critic, self).__init__(name=name, share_first_layer=share_first_layer)
         self.layer_norm = layer_norm
 
     def __call__(self, obs, action, reuse=False):
+        if self.name=='critic' and self.share_first_layer:
+            with tf.variable_scope("share", reuse=tf.AUTO_REUSE):
+                x = obs
+                x = tf.layers.dense(x, 64)
         with tf.variable_scope(self.name) as scope:
             if reuse:
                 scope.reuse_variables()
-
-            x = obs
-            x = tf.layers.dense(x, 64)
+            if not (self.name=='critic' and self.share_first_layer):
+                x = obs
+                x = tf.layers.dense(x, 64)
             if self.layer_norm:
                 x = tc.layers.layer_norm(x, center=True, scale=True)
             x = tf.nn.relu(x)
