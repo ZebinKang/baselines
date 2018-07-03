@@ -37,16 +37,19 @@ class Actor(Model):
             with tf.variable_scope("share", reuse=tf.AUTO_REUSE):
                 x = obs
                 x = tf.layers.dense(x, 64)
+                if self.layer_norm:
+                    x = tc.layers.layer_norm(x, center=True, scale=True)
+                x = tf.nn.relu(x)
+
         with tf.variable_scope(self.name) as scope:
             if reuse:
                 scope.reuse_variables()
             if not (self.name=='actor' and self.share_first_layer):
                 x = obs
                 x = tf.layers.dense(x, 64)
-
-            if self.layer_norm:
-                x = tc.layers.layer_norm(x, center=True, scale=True)
-            x = tf.nn.relu(x)
+                if self.layer_norm:
+                    x = tc.layers.layer_norm(x, center=True, scale=True)
+                x = tf.nn.relu(x)
             
             x = tf.layers.dense(x, 64)
             if self.layer_norm:
@@ -68,17 +71,23 @@ class Critic(Model):
             with tf.variable_scope("share", reuse=tf.AUTO_REUSE):
                 x = obs
                 x = tf.layers.dense(x, 64)
+                if self.layer_norm:
+                    x = tc.layers.layer_norm(x, center=True, scale=True)
+            x = tf.nn.relu(x)
+            x = tf.concat([x, action], axis=-1)
+
+
         with tf.variable_scope(self.name) as scope:
             if reuse:
                 scope.reuse_variables()
             if not (self.name=='critic' and self.share_first_layer):
                 x = obs
                 x = tf.layers.dense(x, 64)
-            if self.layer_norm:
-                x = tc.layers.layer_norm(x, center=True, scale=True)
-            x = tf.nn.relu(x)
+                if self.layer_norm:
+                    x = tc.layers.layer_norm(x, center=True, scale=True)
+                x = tf.nn.relu(x)
 
-            x = tf.concat([x, action], axis=-1)
+                x = tf.concat([x, action], axis=-1)
             x = tf.layers.dense(x, 64)
             if self.layer_norm:
                 x = tc.layers.layer_norm(x, center=True, scale=True)
